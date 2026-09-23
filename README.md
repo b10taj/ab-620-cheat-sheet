@@ -24,13 +24,17 @@
 
 **Settings to know (Generative AI):**
 - **Allow the AI to use its own general knowledge:** turn off to keep answers grounded in your sources.
-- **Content moderation** (Low/Medium/High): higher means stricter filtering and fewer answers.
+- **Content moderation** (Low/Medium/High): higher means stricter filtering and fewer answers. Some protections (prompt-injection defense, certain sensitive-data blocking) are **always on** and can't be disabled at any level.
 - **Generative answers node** (in a topic): limits the search to specific sources.
+
+⚙️ **Azure AI Search + Foundry model catalog:** Add it as a **data connection** (not a manual endpoint/key wire-up — that can create a broken connection). Only **one vector index per connection**. Beyond RAG, **Azure AI Foundry's model catalog** ("bring your own model", 1,800+ models) lets you swap the model used by **prompts** or the agent's **primary orchestration model** — separate settings from each other.
 
 🚨 **Exam traps:**
 - *"No answers from SharePoint."* → The agent is set to **No authentication**. SharePoint needs Entra ID sign-in.
 - *"Reduce hallucinations."* → Turn off general knowledge and raise moderation. Adding trigger phrases doesn't help.
 - *"The document changes weekly."* → Use SharePoint, not an upload.
+- *"Need multiple indexes."* → One Azure AI Search connection = **one index**; add another connection.
+- Experimental/preview Foundry models aren't recommended for production and may process data outside your org's geographic boundary.
 
 ---
 
@@ -102,6 +106,26 @@
 - *"Teams need separate release cycles."* → Use **connected agents**, not child agents.
 - Multi-agent routing **requires generative orchestration**.
 - **A2A** connects agent ↔ agent. **MCP** connects agent ↔ tools and data.
+
+---
+
+### 1.5 Adaptive Cards
+
+📌 **Key concept:** Platform-agnostic JSON UI, rendered natively by the host channel. Two patterns: **Ask with Adaptive Card** node (*interactive* — needs ≥ 1 submit button, captures input into variables) vs. a card attached to a **Message/Question** node (*non-interactive*, display only).
+
+⚙️ **Configuration:** *Topic → Add node → Ask with Adaptive Card* → **Edit adaptive card** (visual designer or raw JSON payload editor). Output variables auto-generate from card inputs. Bind dynamic data into the card with **Power Fx**.
+
+| Host | Max schema version |
+|---|---|
+| Web Chat (default website) | 1.6 |
+| Copilot Studio test chat | 1.6 |
+| Microsoft Teams | 1.5 |
+| Omnichannel live chat widget | 1.5 |
+
+🚨 **Exam traps:**
+- **Teams and Omnichannel cap at schema v1.5** — a v1.6-only feature (e.g. `Action.Execute`) can silently fail there.
+- Use the Adaptive Card **node** only when you need a submit button/input; for pure display, attach the card to a **Message** node instead.
+- Sending several cards in a row? Give each `Action.Submit` a **unique ID** in its `data` payload — otherwise a user can click a stale button from an earlier card.
 
 ---
 
@@ -191,7 +215,7 @@ paths:
 
 ---
 
-### 2.3 Power Automate (Agent Flows)
+### 2.3 Power Automate Cloud Flows (as a Tool)
 
 📌 **Key concept:** The trigger is **"When an agent calls the flow"** (formerly "Run a flow from Copilot"). The flow returns data with the **"Respond to the agent"** action.
 
@@ -216,6 +240,70 @@ Set(Topic.Orders,
 - *"The flow times out."* → Move the **Respond** step earlier.
 - *"Return a list of records."* → Send JSON text and use **Parse value** or `ParseJSON`.
 - *"The flow doesn't appear in the agent."* → Check the trigger type, environment and solution.
+- Don't confuse this with a native **Agent flow** (below) — both can use "When an agent calls the flow," but a Power Automate flow is authored in Power Automate; an Agent flow is authored inside Copilot Studio's own **Flows** designer.
+
+---
+
+### 2.4 Agent Flows (Native Flow Builder)
+
+📌 **Key concept:** Copilot Studio's **own** low-code flow builder (separate page from Power Automate, though it runs on the same engine). A flow can run standalone or be attached to an agent as a **tool**, in which case it needs the same **"When an agent calls the flow"** trigger + **"Respond to the agent"** action.
+
+⚙️ **Configuration:** *Copilot Studio → Flows (left nav) → New flow → Agent flow* → add input parameters on the trigger, add actions, add output parameters on "Respond to the agent" → **Publish** → attach via *Agent → Tools → Add tool*.
+
+**Human-in-the-loop actions:**
+
+| Action | Purpose | Status |
+|---|---|---|
+| **Request information (RFI)** | Pauses the flow, notifies a human reviewer, resumes with their input | GA |
+| **Multistage approvals** | Mixes manual and AI approval stages with conditions between them | **Preview** |
+
+⚙️ **Key limits:** The **"Respond to the agent"** action must reply within **≈ 100 seconds** (real-time; toggle **Asynchronous response = Off**). Actions placed *after* the response can keep running for up to **30 days** ("express mode"). Runs are visible in the agent's **Activity** page (Activity map / Transcript).
+
+🚨 **Exam traps:**
+- The 100-second limit is on the **response action**, not the whole flow.
+- **Multistage/AI approvals is Preview** — don't treat it as GA on the exam.
+- An **Agent flow** lives natively in Copilot Studio; a **Power Automate cloud flow** is a separate canvas you switch to — pick the one the scenario names.
+
+---
+
+### 2.5 Computer Use
+
+📌 **Key concept:** A **tool** (not a channel, not an orchestration mode) that lets the agent operate a Windows virtual desktop/browser via simulated mouse, keyboard and screen reasoning — for apps/sites with no API. **Requires generative orchestration.**
+
+⚙️ **Configuration:** *Agent → Tools → Add tool → New tool → Computer use* → describe the task in natural language.
+
+| "Machine" option | Description | Status |
+|---|---|---|
+| **Hosted browser** (Windows 365 for Agents) | Microsoft-managed, zero setup; **not** Entra-joined/Intune-managed; not for production | Preview |
+| **Cloud PC pool** | Windows 365 Cloud PCs, Entra-joined, Intune-managed; production-ready | Preview |
+| **Bring-your-own-machine** | A Windows device you register/manage | — |
+
+**Other settings:** **Credentials to use** — *maker-provided* (default; shared access risk) vs. *end-user credentials*. **Stored credentials** live in Power Platform storage or your own **Azure Key Vault**. **Human supervision** — an email reviewer is notified if the agent flags a potentially harmful instruction.
+
+⚙️ **Monitoring:** Agent → **Activity** page → Activity map / Transcript (step-by-step reasoning + screenshots). Detailed logs can be stored in **Dataverse** (toggle in *Power Platform admin center → Environments → Settings → Products → Features*).
+
+🚨 **Exam traps:**
+- Computer use needs **generative orchestration** — classic-orchestration agents can't use it.
+- Only **Cloud PC pool** and **bring-your-own-machine** are Entra-joined/Intune-managed; the **hosted browser** is not.
+- **Maker-provided credentials** mean anyone the agent is shared with inherits the maker's access on that machine — a common "what's the security risk" scenario.
+
+---
+
+### 2.6 Custom Prompts (Prompt Builder) as a Tool
+
+📌 **Key concept:** A **prompt** is a reusable, general-purpose instruction-following action (summarize, classify, extract, rewrite…) with defined **inputs** and an **output**, built in the **Prompt builder**. This is **not** the same as the **Generative answers** node: a prompt is instructions you author yourself; generative answers is automatic RAG grounding over knowledge sources with citations.
+
+⚙️ **Configuration — three places to add a prompt:**
+- **Agent tool:** *Agent → Tools → New tool → Prompt*
+- **Topic node:** *Topic → Add node → Add a tool → New prompt*
+- **Agent flow node:** *Flow → Insert action → AI capabilities → Run a prompt*
+
+A prompt = **Instruction** (what to do) + **Context** (data to act on). Choose the **model** from a dropdown (default is a lightweight GPT model; more models — GPT, Claude, Grok, etc. — are available via the **Azure AI Foundry model catalog**, "bring your own model"). Set **temperature** for creativity vs. consistency.
+
+🚨 **Exam traps:**
+- *"Summarize this ticket in a fixed format"* → **Prompt**. *"Answer using our SharePoint docs"* → **Generative answers**.
+- Prompts run in **Copilot Studio** consume **Copilot Credits**; the same prompt reused in **Power Apps/Power Automate** consumes **AI Builder / prompt builder credits** instead — separate billing pools.
+- **No-authentication (anonymous)** agents can't use **Dataverse** as a knowledge source inside a prompt.
 
 ---
 
@@ -355,6 +443,39 @@ pac solution import --path ./ContosoAgent.zip --settings-file settings.json
 
 🚨 **Trap:** *"Block makers from publishing agents without authentication."* → Use **DLP** or tenant/environment settings in the admin center, not a per-agent setting.
 
+### 4.6 Testing & Evaluation (Agent Evaluation)
+
+📌 **Key concept:** Distinct from ad-hoc **Test chat** (one conversation at a time). **Agent evaluation** runs a **test set** (up to **100 test cases**) automatically against the agent to measure accuracy, relevancy and safety **at scale and repeatably**.
+
+⚙️ **Configuration:** *Agent → Evaluation → New evaluation* → choose **Single responses** or **Conversational** (multi-turn) → populate cases via a **Quick question set** (auto-generated from the agent's instructions), manual entry, spreadsheet import, or by converting saved test-chat conversations.
+
+| Method | Measures | Scoring |
+|---|---|---|
+| General quality | Overall response quality | Scored % |
+| Content safety | Hate, violence, self-harm, sexual content | Pass/fail |
+| Compare meaning | Semantic match to an expected answer | Scored % |
+| Tool use | Whether the expected tool/resource was used | Pass/fail |
+| Keyword / exact / text-similarity match | Literal match to expected text | Pass/fail or scored % |
+| Custom | Your own evaluation instructions | Pass/fail per label |
+
+🚨 **Exam traps:**
+- **100 test cases max** per test set.
+- Results are retained **89 days only** — export to CSV to keep them longer.
+- Only **one evaluation run at a time** per agent.
+- *"Test a single scripted conversation."* → Use **Test chat**. *"Score accuracy across many scenarios automatically."* → Use **Agent evaluation**.
+- Safety evaluators **complement**, they don't replace, Responsible AI content filters.
+
+### 4.7 Application Insights Monitoring
+
+📌 **Key concept:** The built-in **Analytics** tab gives dashboards out of the box (see 4.5). **Application Insights** is an *additional*, deeper telemetry pipeline into **Azure Monitor** for custom KQL queries, alerting and long-term retention — none of which the built-in Analytics tab provides.
+
+⚙️ **Configuration:** *Agent → Settings → Advanced → Application Insights* → paste the **Connection string** from your Azure Application Insights resource. Toggles: **Enable logging**, **Log conversation details** (user ID/name, message text), **Log sensitive Activity properties**, **Node execution events** (one event per topic node run).
+
+🚨 **Exam traps:**
+- Requires an **Azure subscription** — it isn't "free" like the built-in Monitor tab.
+- Turning on **Log conversation details** / **sensitive Activity properties** has privacy implications — a likely compliance-scenario question.
+- Analyze data in the **Azure Portal → Logs (KQL)** against the `customEvents` table, not inside Copilot Studio.
+
 ---
 
 ## 5️⃣ Security & Channels
@@ -446,5 +567,11 @@ const { token } = await res.json();
 | SSO on a custom website | **Manual auth** + token exchange URL |
 | Hand off to a live agent with context | Escalate → **D365 Omnichannel** |
 | Secure web embed | **Web channel security** + backend token exchange |
+| Automate a legacy app/site with no API | **Computer use** tool (needs generative orchestration) |
+| Human approval inside an automated flow | **Agent flow** with Request-for-Information / approval action |
+| Score accuracy across many scenarios before go-live | **Agent evaluation** (test set, up to 100 cases) |
+| Custom telemetry, alerting, long-term retention | **Application Insights** (beyond built-in Analytics) |
+| Summarize/classify/rewrite with your own instructions | **Custom prompt** (Prompt builder), not Generative answers |
+| Card feature not working in Teams | Teams caps Adaptive Card schema at **v1.5** |
 
 **Good luck on AB-620! 🚀** Practise every scenario in a Developer environment. Hands-on experience helps most with the "which option?" questions.
